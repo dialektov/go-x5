@@ -2,7 +2,9 @@ package service_test
 
 import (
 	"context"
+	"math"
 	"testing"
+	"time"
 
 	"example.com/order-service/internal/order"
 	"example.com/order-service/internal/service"
@@ -217,12 +219,16 @@ func (r *fakeRepository) List(_ context.Context) ([]order.Order, error) {
 	return result, nil
 }
 
-func (r *fakeRepository) Update(_ context.Context, value order.Order) (order.Order, error) {
+func (r *fakeRepository) Update(_ context.Context, value order.Order, expectedStatus order.Status) (order.Order, error) {
 	if r.updateErr != nil {
 		return order.Order{}, r.updateErr
 	}
-	if _, ok := r.orders[value.ID]; !ok {
+	current, ok := r.orders[value.ID]
+	if !ok {
 		return order.Order{}, order.ErrOrderNotFound
+	}
+	if current.Status != expectedStatus {
+		return order.Order{}, order.ErrInvalidStatusTransition
 	}
 	stored := cloneOrder(value)
 	r.orders[stored.ID] = stored
@@ -246,6 +252,45 @@ func mustCreate(t *testing.T, orderService *service.OrderService, name string, q
 	require.NoError(t, err)
 
 	return created
+}
+
+func TestCreateRejectsPriceOverflow(t *testing.T) {
+	orderService := service.NewOrderService(newFakeRepository())
+	_, err := orderService.Create(context.Background(), order.CreateOrderInput{
+		Items: []order.Item{{Name: "Keyboard", Quantity: 2, Price: math.MaxInt64}},
+	})
+	require.ErrorIs(t, err, order.ErrInvalidOrder)
+}
+
+func TestNonPositiveID(t *testing.T) {
+	orderService := service.NewOrderService(newFakeRepository())
+
+	_, err := orderService.GetByID(context.Background(), 0)
+	require.ErrorIs(t, err, order.ErrInvalidOrder)
+
+	_, err = orderService.UpdateStatus(context.Background(), -1, order.StatusProcessing)
+	require.ErrorIs(t, err, order.ErrInvalidOrder)
+
+	_, err = orderService.History(context.Background(), 0)
+	require.ErrorIs(t, err, order.ErrInvalidOrder)
+}
+
+func TestHistorySortsByTime(t *testing.T) {
+	repository := newFakeRepository()
+	repository.nextID = 2
+	repository.sequence = []int64{1}
+	repository.orders[1] = order.Order{
+		ID:     1,
+		Status: order.StatusProcessing,
+		History: []order.StatusChange{
+			{Status: order.StatusProcessing, ChangedAt: time.Date(2026, 11, 27, 12, 5, 0, 0, time.UTC)},
+			{Status: order.StatusNew, ChangedAt: time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)},
+		},
+	}
+
+	history, err := service.NewOrderService(repository).History(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, []order.Status{order.StatusNew, order.StatusProcessing}, statuses(history))
 }
 
 func statuses(history []order.StatusChange) []order.Status {

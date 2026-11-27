@@ -17,6 +17,8 @@ import (
 // @Failure 500 {object} ErrorResponse
 // @Router /api/v1/orders [post]
 func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	var input order.CreateOrderInput
 	if err := decodeJSON(r, &input); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body", Code: "INVALID_REQUEST"})
@@ -89,6 +91,8 @@ func (h *Handler) getOrder(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/v1/orders/{id}/status [patch]
 func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	id, err := orderID(r)
 	if err != nil {
 		h.writeServiceError(w, err)

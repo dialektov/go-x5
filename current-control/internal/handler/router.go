@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -101,6 +102,9 @@ func decodeJSON(r *http.Request, destination any) error {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(destination); err != nil {
 		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("unexpected trailing data in request body")
 	}
 
 	return nil

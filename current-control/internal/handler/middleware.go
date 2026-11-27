@@ -6,13 +6,17 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
 type contextKey string
 
 const requestIDKey contextKey = "request_id"
+
+var fallbackRequestCounter atomic.Uint64
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -74,6 +78,7 @@ func recoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
 					slog.String("request_id", requestID),
+					slog.String("stack", string(debug.Stack())),
 				)
 
 				if recorder, ok := w.(*statusRecorder); ok && recorder.wroteHeader {
@@ -93,7 +98,7 @@ func recoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 func newRequestID() string {
 	var buf [16]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 16)
+		return strconv.FormatUint(fallbackRequestCounter.Add(1), 16)
 	}
 
 	return hex.EncodeToString(buf[:])

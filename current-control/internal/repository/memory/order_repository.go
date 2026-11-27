@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"example.com/order-service/internal/order"
@@ -57,12 +58,15 @@ func (r *OrderRepository) List(_ context.Context) ([]order.Order, error) {
 	return result, nil
 }
 
-func (r *OrderRepository) Update(_ context.Context, value order.Order) (order.Order, error) {
+func (r *OrderRepository) Update(_ context.Context, value order.Order, expectedStatus order.Status) (order.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for index, item := range r.items {
 		if item.ID == value.ID {
+			if item.Status != expectedStatus {
+				return order.Order{}, fmt.Errorf("%w: status changed concurrently", order.ErrInvalidStatusTransition)
+			}
 			stored := cloneOrder(value)
 			r.items[index] = stored
 
